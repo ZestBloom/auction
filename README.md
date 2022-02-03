@@ -2,7 +2,7 @@
 
 This is a reach app in which an ASA owner of any assets can create an auction allowing bidding and price discovery on the asset during a specified time frame. After the end of the auction time the contract can be closed out and it either meets the sellers set reserve price resulting in payouts to the seller, marketplace, creator and a transfer of the asset to the highest bidder. Alternately if the reserve is not met then the contract may be closes out returning all funds and assets to their original owners or left to be sold at the reserved price.
 
-## activation fee
+## activation
 
 0.55 ALGO
 
