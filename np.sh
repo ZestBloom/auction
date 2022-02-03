@@ -15,7 +15,6 @@ eject () {
         _ build/${infile:-index}.main.mjs
 }
 launch () {
-        #curl -X POST http://localhost:5002/api/v1/launch2 -H 'Content-Type: application/json' -d @<( eject ) 
         curl -X POST https://algoapiv1.herokuapp.com/api/v1/launch2 -H 'Content-Type: application/json' -d @<( eject ) 
 }
 np () {
