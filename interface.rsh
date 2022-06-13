@@ -3,7 +3,7 @@
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Auction
 // Author: Nicholas Shellabarger
-// Version: 0.0.1 - initial
+// Version: 0.0.2 - allow sale params
 // Requires Reach v0.1.7 (stable)
 // -----------------------------------------------
 // FUNCS
@@ -104,8 +104,8 @@ export const App = (map) => {
     } = declassify(interact.getParams());
     assume(this == addr2);
     assume(royaltyCents >= 0 && royaltyCents <= 99);
-    assume(startPrice >= 0);
-    assume(startPrice < reservePrice);
+    assume(startPrice > 0);
+    assume(startPrice <= reservePrice);
     assume(tokenAmt > 0);
   });
   Auctioneer.publish(
@@ -131,8 +131,8 @@ export const App = (map) => {
   });
   require(Auctioneer == addr2);
   require(royaltyCents >= 0 && royaltyCents <= 99);
-  require(startPrice >= 0);
-  require(startPrice < reservePrice);
+  require(startPrice > 0);
+  require(startPrice <= reservePrice);
   require(tokenAmt > 0);
 
   Depositer.set(Auctioneer);
