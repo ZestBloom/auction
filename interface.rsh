@@ -7,6 +7,7 @@
 // Requires Reach v0.1.7 (stable)
 // -----------------------------------------------
 // FUNCS
+const SERIAL_VER = 2;
 export const max = (a, b) => (a > b ? a : b);
 export const min = (a, b) => (a < b ? a : b);
 export const minBidFunc = (currentPrice, [bidIncrementAbs, bidIncrementRel]) =>
@@ -30,9 +31,8 @@ export const depositerInteract = {
   ...hasSignal,
 };
 // PARTICIPANTS
+export const Event = () => [];
 export const Participants = () => [
-  Participant("Depositer", depositerInteract),
-  Participant("Relay", relayInteract),
   Participant("Auctioneer", {
     ...common,
     ...hasSignal,
@@ -41,7 +41,7 @@ export const Participants = () => [
       Object({
         royaltyAddr: Address, // Royalty Address
         royaltyCents: UInt, // Royalty Cents
-        token: Token, // NFT token
+        //token: Token, // NFT token
         tokenAmt: UInt, // Amount of NFT token
         startPrice: UInt, // Start Price
         reservePrice: UInt, // Reserve Price
@@ -51,6 +51,7 @@ export const Participants = () => [
       })
     ),
   }),
+  ParticipantClass("Relay", relayInteract),
 ];
 export const Views = () => [
   View({
@@ -79,9 +80,15 @@ export const Api = () => [
     touch: Fun([], Null),
   }),
 ];
-//export const main = (Depositer, Relay, Auctioneer, Auction, Bid, addrs) => {
 export const App = (map) => {
-  const [[addr, _, addr2], [Depositer, Relay, Auctioneer], [v], [a]] = map;
+  const [
+    { amt, ttl, tok0: token },
+    [addr, _],
+    [Auctioneer, Relay],
+    [v],
+    [a],
+    _,
+  ] = map;
   // ---------------------------------------------
   // Auctioneer publishes prarams and deposits token
   // ---------------------------------------------
@@ -97,12 +104,11 @@ export const App = (map) => {
       royaltyAddr,
       royaltyCents,
       // TOKEN
-      token,
+      //token,
       tokenAmt,
       // REALTIME MECHANICS
-      deadlineSecs, 
+      deadlineSecs,
     } = declassify(interact.getParams());
-    assume(this == addr2);
     assume(royaltyCents >= 0 && royaltyCents <= 99);
     assume(startPrice > 0);
     assume(startPrice <= reservePrice);
@@ -119,35 +125,25 @@ export const App = (map) => {
     royaltyAddr,
     royaltyCents,
     // TOKEN
-    token,
+    //token,
     tokenAmt,
     // REALTIME MECHANICS
     deadlineSecs
   )
-  .timeout(relativeTime(100), () => {
-    Anybody.publish();
-    commit();
-    exit();
-  });
-  require(Auctioneer == addr2);
+    .pay([amt + SERIAL_VER, [tokenAmt, token]])
+    .timeout(relativeTime(ttl), () => {
+      Anybody.publish();
+      commit();
+      exit();
+    });
   require(royaltyCents >= 0 && royaltyCents <= 99);
   require(startPrice > 0);
   require(startPrice <= reservePrice);
   require(tokenAmt > 0);
 
-  Depositer.set(Auctioneer);
-  commit();
+  transfer(amt + SERIAL_VER).to(addr);
 
-  Depositer.pay([[tokenAmt, token]])
-  .timeout(relativeTime(100), () => {
-    Anybody.publish();
-    commit();
-    exit();
-  });
-
-  Depositer.only(() => interact.signal());
-
-  each([Auctioneer], () => interact.log("Start Auction"));
+  Auctioneer.only(() => interact.signal());
 
   // SET VIEW INIT
   v.manager.set(Auctioneer); // Set View Owner / Manager
@@ -210,13 +206,16 @@ export const App = (map) => {
       a.getBid,
       (msg) => {
         assume(lastConsensusSecs() < dlSecs);
-        assume(msg >= minBidFunc(currentPrice, [bidIncrementAbs, bidIncrementRel]));
+        assume(
+          msg >= minBidFunc(currentPrice, [bidIncrementAbs, bidIncrementRel])
+        );
         assume(msg >= startPrice);
       },
       (msg) => msg,
       (msg, k) => {
         require(lastConsensusSecs() < dlSecs);
-        require(msg >= minBidFunc(currentPrice, [bidIncrementAbs, bidIncrementRel]));
+        require(msg >=
+          minBidFunc(currentPrice, [bidIncrementAbs, bidIncrementRel]));
         require(msg >= startPrice);
         transfer(currentPrice).to(highestBidder);
         k(null);
@@ -297,12 +296,12 @@ export const App = (map) => {
     }
   };
   const transferLast = () => {
-    if(isReservePriceMet) {
+    if (isReservePriceMet) {
       transfer(platformAmount).to(addr); // to platform
     } else {
       // pass
     }
-  }
+  };
   // ---------------------------------------------
 
   // ---------------------------------------------
@@ -336,7 +335,7 @@ export const App = (map) => {
    * =============================================
    */
   // ---------------------------------------------
-  transferLast()
+  transferLast();
   // ---------------------------------------------
 
   // ---------------------------------------------
