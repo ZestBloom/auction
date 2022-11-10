@@ -7,7 +7,7 @@
 // Requires Reach v0.1.7 (stable)
 // -----------------------------------------------
 // FUNCS
-const SERIAL_VER = 2;
+const SERIAL_VER = 0;
 export const max = (a, b) => (a > b ? a : b);
 export const min = (a, b) => (a < b ? a : b);
 export const minBidFunc = (currentPrice, [bidIncrementAbs, bidIncrementRel]) =>
@@ -69,6 +69,7 @@ export const Views = () => [
     royalties: UInt, // Royalty Cents
     closed: Bool, //
     minBid: UInt, //
+    paymentToken: Token, //
   }),
 ];
 
@@ -82,7 +83,7 @@ export const Api = () => [
 ];
 export const App = (map) => {
   const [
-    { amt, ttl, tok0: token },
+    { amt, ttl, tok0: token, tok1: paymentToken },
     [addr, _],
     [Auctioneer, Relay],
     [v],
@@ -154,6 +155,7 @@ export const App = (map) => {
   v.royalties.set(royaltyCents); // Set View Royalties
   v.closed.set(false); // Set View Closed
   v.minBid.set(startPrice); //
+  v.paymentToken.set(paymentToken);
 
   // ---------------------------------------------
 
@@ -185,14 +187,14 @@ export const App = (map) => {
         minBidFunc(currentPrice, [bidIncrementAbs, bidIncrementRel])
       ); // Set View Min Bid
     })
-    .invariant(balance() >= currentPrice)
+    .invariant(balance(paymentToken) >= currentPrice)
     .while(keepGoing)
     /*
      * Touch auction
      */
     .api(
       a.touch,
-      () => 0,
+      () => [0, [0, paymentToken]],
       (k) => {
         k(null);
         return [keepGoing, highestBidder, currentPrice, dlSecs];
@@ -211,13 +213,13 @@ export const App = (map) => {
         );
         assume(msg >= startPrice);
       },
-      (msg) => msg,
+      (msg) => [0, [msg, paymentToken]],
       (msg, k) => {
         require(lastConsensusSecs() < dlSecs);
         require(msg >=
           minBidFunc(currentPrice, [bidIncrementAbs, bidIncrementRel]));
         require(msg >= startPrice);
-        transfer(currentPrice).to(highestBidder);
+        transfer(currentPrice, paymentToken).to(highestBidder);
         k(null);
         return [
           /*keepGoing*/ true,
@@ -239,12 +241,12 @@ export const App = (map) => {
         assume(currentPrice < reservePrice); // prevent purchase down after reservePrice is met
         assume(msg >= reservePrice); // prevent purchase below reserve price
       },
-      (msg) => msg,
+      (msg) => [0, [msg, paymentToken]],
       (msg, k) => {
         require(lastConsensusSecs() >= dlSecs);
         require(currentPrice < reservePrice); // prevent purchase down after reservePrice is met
         require(msg >= reservePrice); // prevent purchase below reserve price
-        transfer(currentPrice).to(highestBidder);
+        transfer(currentPrice, paymentToken).to(highestBidder);
         k(null);
         return [
           /*keepGoing*/ false,
@@ -259,7 +261,7 @@ export const App = (map) => {
      */
     .api(
       a.close,
-      () => 0,
+      () => [0, [0, paymentToken]],
       (k) => {
         k(null);
         return [
@@ -282,25 +284,30 @@ export const App = (map) => {
   const cent = balance() / 100;
   const royaltyAmount = royaltyCents * cent;
   const platformAmount = cent;
-  const recvAmount = balance() - (royaltyAmount + platformAmount);
+  const recvAmount = balance(paymentToken) - (royaltyAmount + platformAmount);
   const isReservePriceMet = currentPrice >= reservePrice;
   // requires transfer to highestBidder
   const transferButLast = () => {
     if (isReservePriceMet) {
       transfer([[balance(token), token]]).to(highestBidder); // to highestBidder
-      transfer(royaltyAmount).to(royaltyAddr); // to creator
-      transfer(recvAmount).to(Auctioneer); // to auctioneer
+      //transfer(royaltyAmount).to(royaltyAddr); // to creator
+      transfer(recvAmount, paymentToken).to(Auctioneer); // to auctioneer
     } else {
-      transfer(recvAmount + royaltyAmount + platformAmount).to(highestBidder); // to highestBidder
-      transfer([[balance(token), token]]).to(Auctioneer); // to auctioneer
+      transfer(recvAmount + royaltyAmount + platformAmount, paymentToken).to(
+        highestBidder
+      );
+      transfer(balance(token), token).to(Auctioneer); // to auctioneer
     }
   };
   const transferLast = () => {
     if (isReservePriceMet) {
-      transfer(platformAmount).to(addr); // to platform
+      //transfer(platformAmount, paymentToken).to(addr); // to platform
     } else {
       // pass
     }
+    transfer(balance()).to(addr); // to platform
+    transfer(balance(token), token).to(addr);
+    transfer(balance(paymentToken), paymentToken).to(addr);
   };
   // ---------------------------------------------
 
@@ -325,8 +332,7 @@ export const App = (map) => {
    * release their part and delete the application*/
   // -----------------------------------------------
 
-  // ---------------------------------------------
-  /*
+  /* ---------------------------------------------
    * Balance transfer
    * =============================================
    * Expect reserve price to be met resulting in
