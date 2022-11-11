@@ -3,8 +3,8 @@
 
 // -----------------------------------------------
 // Name: NFT Jam Auction
-// Version: 0.0.2 - allow sale params
-// Requires Reach v0.1.7 (stable)
+// Version: 0.1.0 - use base, add royalties
+// Requires Reach v0.1.11-rc7 (27cb9643) or later
 // -----------------------------------------------
 
 import {
