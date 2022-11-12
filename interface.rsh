@@ -3,7 +3,7 @@
 
 // -----------------------------------------------
 // Name: NFT Jam Auction
-// Version: 0.1.0 - use base, add royalties
+// Version: 0.1.1 - fix runtime issues
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // -----------------------------------------------
 
@@ -21,12 +21,10 @@ import {
 
 // CONSTANTS
 
-const SERIAL_VER = 1;
+const SERIAL_VER = 0;
 
 const DIST_LENGTH = 9;
 
-const ADDR_RESERVED_CREATOR = 0;
-const ADDR_RESERVED_CURATOR = 1;
 const ADDR_RESERVED_ADDR = 2;
 
 // TYPES
@@ -124,11 +122,13 @@ const managerInteract = {
 
 const relayInteract = {};
 
+const eveInteract = {};
+
 // EVENTS
 
 export const auctionEvents = {
-  appBid: [Address, UInt],
-  appPurchase: [Address, UInt],
+  appBid: [UInt, Address, UInt],
+  appPurchase: [UInt, Address, UInt],
 };
 
 // CONTRACT
@@ -138,6 +138,7 @@ export const Event = () => [Events({ ...baseEvents, ...auctionEvents })];
 export const Participants = () => [
   Participant("Manager", managerInteract),
   Participant("Relay", relayInteract),
+  Participant("Eve", eveInteract),
 ];
 
 export const Views = () => [View(view(State))];
@@ -148,7 +149,7 @@ export const App = (map) => {
   const [
     { amt, ttl, tok0: token },
     [addr, _],
-    [Manager, Relay],
+    [Manager, Relay, _],
     [v],
     [a],
     [e],
@@ -249,18 +250,19 @@ export const App = (map) => {
     // api: get bid
     //  allows anyone to bid
     .api_(a.getBid, (msg) => {
-      check(thisConsensusSecs() < s.endSecs, "Auction over");
-      check(msg >= s.minBid, "Bid is lower than min bid");
-      check(msg >= s.startPrice, "Bid is lower than start price");
+      check(msg >= s.minBid, "Bid must be greater than min bid");
+      check(msg >= s.startPrice, "Bid must be greater than start price");
       return [
         msg,
         (k) => {
+          require(thisConsensusSecs() < s.endSecs, "Auction must not be over");
           k(null);
           transfer(s.currentPrice).to(s.highestBidder);
-          e.appBid(this, msg);
+          e.appBid(thisConsensusSecs(), this, msg);
           return [
             {
               ...s,
+              bids: s.bids + 1,
               highestBidder: this,
               currentPrice: msg,
               endSecs: nextDlSecs(s.endSecs),
@@ -273,22 +275,20 @@ export const App = (map) => {
     // api: get purchase
     //  allows anyone to purchase
     .api_(a.getPurchase, (cAddr) => {
-      check(thisConsensusSecs() >= s.endSecs, "Auction not over");
-      check(s.currentPrice < s.reservePrice, "Reserve price met");
+      check(s.currentPrice < s.reservePrice, "Reserve price must be unmet");
       return [
         s.reservePrice,
         (k) => {
+          require(thisConsensusSecs() >= s.endSecs, "Auction must be over");
           const partTake = s.reservePrice / royaltyCap;
           const proceedTake = partTake * distrTake;
           const sellerTake = s.reservePrice - proceedTake;
           transfer(s.currentPrice).to(s.highestBidder);
           transfer(sellerTake).to(Manager);
           transfer([[s.tokenAmount, token]]).to(this);
-          transfer(distr[ADDR_RESERVED_CURATOR] * partTake).to(cAddr);
-          transfer(distr[ADDR_RESERVED_CREATOR] * partTake).to(
-            addrs[ADDR_RESERVED_CREATOR]
-          );
-          e.appPurchase(this, s.reservePrice);
+          transfer(distr[0] * partTake).to(cAddr);
+          transfer(distr[1] * partTake).to(addrs[1]);
+          e.appPurchase(thisConsensusSecs(), this, s.reservePrice);
           k(null);
           return [
             {
@@ -296,16 +296,8 @@ export const App = (map) => {
               closed: true,
               highestBidder: this,
               currentPrice: s.reservePrice,
-              addrs: Array.set(s.addrs, ADDR_RESERVED_CURATOR, cAddr),
-              distr: Array.set(
-                Array.set(
-                  distr.map((d) => d * partTake),
-                  ADDR_RESERVED_CREATOR,
-                  0
-                ),
-                ADDR_RESERVED_CURATOR,
-                0
-              ),
+              addrs: Array.set(s.addrs, 0, cAddr),
+              distr: Array.set(Array.set(distr.map((d) => d * partTake), 0, 0), 1, 0),
               who: this,
             },
           ];
@@ -315,34 +307,24 @@ export const App = (map) => {
     // api: claim
     //  allows proceeds to be claimed
     .api_(a.claim, (cAddr) => {
-      check(thisConsensusSecs() >= s.endSecs, "Auction not over");
-      check(s.currentPrice >= s.reservePrice, "Reserve price is not met");
+      check(s.currentPrice >= s.reservePrice, "Reserve price must be met");
       return [
         (k) => {
+          require(thisConsensusSecs() >= s.endSecs, "Auction must be over");
           const partTake = s.currentPrice / royaltyCap;
           const proceedTake = partTake * distrTake;
           const sellerTake = s.currentPrice - proceedTake;
           transfer(sellerTake).to(Manager);
           transfer([[s.tokenAmount, token]]).to(s.highestBidder);
-          transfer(distr[ADDR_RESERVED_CREATOR] * partTake).to(
-            addrs[ADDR_RESERVED_CREATOR]
-          );
-          transfer(distr[ADDR_RESERVED_CURATOR] * partTake).to(cAddr);
+          transfer(distr[0] * partTake).to(cAddr);
+          transfer(distr[1] * partTake).to(addrs[1]);
           k(null);
           return [
             {
               ...s,
               closed: true,
-              addrs: Array.set(s.addrs, ADDR_RESERVED_CURATOR, cAddr),
-              distr: Array.set(
-                Array.set(
-                  distr.map((d) => d * partTake),
-                  ADDR_RESERVED_CREATOR,
-                  0
-                ),
-                ADDR_RESERVED_CURATOR,
-                0
-              ),
+              addrs: Array.set(s.addrs, 0, cAddr),
+              distr: Array.set(Array.set(distr.map((d) => d * partTake), 0, 0), 1, 0),
               who: s.highestBidder,
             },
           ];
@@ -352,11 +334,11 @@ export const App = (map) => {
     // api: close
     //  allows auction to be closed
     .api_(a.close, () => {
-      check(this === Manager || this === s.highestBidder, "Not authorized");
-      check(thisConsensusSecs() >= s.endSecs, "Auction not yet ended");
-      check(s.currentPrice < s.reservePrice, "Reserve price is met");
+      check(this === Manager || this === s.highestBidder, "Must be authorized");
+      check(s.currentPrice < s.reservePrice, "Reserve price must be unmet");
       return [
         (k) => {
+          require(thisConsensusSecs() >= s.endSecs, "Auction must be over");
           transfer(s.currentPrice).to(s.highestBidder);
           transfer([[s.tokenAmount, token]]).to(Manager);
           k(null);
@@ -373,26 +355,20 @@ export const App = (map) => {
     .timeout(false);
   e.appClose();
   commit();
-
   // Step
   Relay.publish();
-  if (s.who == Manager || s.distr.slice(2, DIST_LENGTH - 2).sum() == 0) {
-    transfer(s.distr.slice(2, DIST_LENGTH - 2).sum()).to(Manager);
-    commit();
-    exit();
-  }
-  transfer(s.distr[2]).to(addrs[2]);
+  transfer(s.distr[2]).to(addrs[2]); // addr
   transfer(s.distr[3]).to(addrs[3]);
   transfer(s.distr[4]).to(addrs[4]);
   transfer(s.distr[5]).to(addrs[5]);
   commit();
   // Step
   Anybody.publish();
-  if (s.distr.slice(6, DIST_LENGTH - 6).sum() != 0) {
-    transfer(s.distr[6]).to(addrs[6]);
-    transfer(s.distr[7]).to(addrs[7]);
-    transfer(s.distr[8]).to(addrs[8]);
-  }
+  transfer(s.distr[6]).to(addrs[6]);
+  transfer(s.distr[7]).to(addrs[7]);
+  transfer(s.distr[8]).to(addrs[8]);
+  commit();
+  Anybody.publish();
   commit();
   exit();
 };
